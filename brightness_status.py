@@ -32,6 +32,7 @@ class Py3status:
     # The percentage changed for every up/down adjustment
     percentage_delta = 5
     dark_threshold = 50
+    min_brightness = 20
 
     def kill(self):
         # TODO: store the brightness status in py3status
@@ -61,15 +62,15 @@ class Py3status:
         }
 
     def _brightnessctl_base_command(self):
-        return "brightnessctl -c {cls} -d {device} -m".format(cls=self.ctl_class, device=self.ctl_device)
+        return "brightnessctl -c {cls} -d \"{device}\" -m".format(cls=self.ctl_class, device=self.ctl_device)
 
     def _get_brightness_format_data(self):
-        command_str = self._brightnessctl_base_command()
         color = self.color_dark
+        command_str = self._brightnessctl_base_command()
         brightness = brightness_percentage = ""
         try:
-            output = self.py3.command_output(command_str, capture_stderr=True)
-            parts = output.rsplit(",", maxsplit=3)
+            output = self.py3.command_output(command_str)
+            parts = output.strip().rsplit(",", 3)
             if len(parts) < 4:
                 raise self.py3.CommandError(msg="cannot parse brightnessctl output.",
                                             error_code=2,
@@ -92,26 +93,27 @@ class Py3status:
         }, color
 
     def _brightness_delta_adjustment(self, value, increase=False):
-        command_str = "{base_command} s {sign}{value}".format(
+        command_str = "{base_command} s {value}{sign}".format(
             base_command=self._brightnessctl_base_command(),
             sign="+" if increase else "-", value=str(value))
 
-        self.py3.run_command(command_str)
+        self.py3.command_run(command_str)
 
     def _brightness_absolute_adjustment(self, value):
         command_str = "{base_command} s {value}".format(
             base_command=self._brightnessctl_base_command(), value=str(value))
 
-        self.py3.run_command(command_str)
+        self.py3.command_run(command_str)
 
     def on_click(self, event):
         button = event["button"]
         if button in [self.button_up, self.button_down]:
             self._brightness_delta_adjustment(
                 "%s%%" % str(self.percentage_delta),
-                increase=(button == self.botton_up))
+                increase=(button == self.button_up))
         elif button == self.button_min:
-            self._brightness_absolute_adjustment("0%")
+            self._brightness_absolute_adjustment(
+                "{min}%".format(min=str(self.min_brightness)))
         elif button == self.button_max:
             self._brightness_absolute_adjustment("100%")
 
