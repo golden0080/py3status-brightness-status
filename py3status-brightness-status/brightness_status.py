@@ -33,6 +33,7 @@ class Py3status:
     percentage_delta = 5
     dark_threshold = 50
     min_brightness = 20
+    below_min_brightness = False
 
     def kill(self):
         # TODO: store the brightness status in py3status
@@ -41,7 +42,6 @@ class Py3status:
     def post_config_hook(self):
         self.color_dark = self.py3.COLOR_DARK or "#00FFFF"
         self.color_bright = self.py3.COLOR_BRIGHT or "#FFFF00"
-
 
     def brightness_status(self):
         cached_until = self.py3.time_in(self.cache_timeout)
@@ -62,7 +62,8 @@ class Py3status:
         }
 
     def _brightnessctl_base_command(self):
-        return "brightnessctl -c {cls} -d \"{device}\" -m".format(cls=self.ctl_class, device=self.ctl_device)
+        return "brightnessctl -c {cls} -d \"{device}\" -m".format(
+            cls=self.ctl_class, device=self.ctl_device)
 
     def _get_brightness_format_data(self):
         color = self.color_dark
@@ -72,13 +73,24 @@ class Py3status:
             output = self.py3.command_output(command_str)
             parts = output.strip().rsplit(",", 3)
             if len(parts) < 4:
-                raise self.py3.CommandError(msg="cannot parse brightnessctl output.",
-                                            error_code=2,
-                                            output="brightnessctl command output is invalid: %s" % output,
-                                            error="brightnessctl output invalid.")
+                raise self.py3.CommandError(
+                    msg="cannot parse brightnessctl output.",
+                    error_code=2,
+                    output="brightnessctl command output is invalid: %s" %
+                    output,
+                    error="brightnessctl output invalid.")
             brightness = parts[-3]
             brightness_percentage = parts[-2]
-            if int(brightness_percentage[:-1]) > self.dark_threshold:
+            percentage_int = int(brightness_percentage[:-1])
+            if not self.below_min_brightness and (percentage_int <
+                                                  self.min_brightness):
+
+                brightness_percentage = self._percentage_format(
+                    self.min_brightness)
+                self._brightness_absolute_adjustment(brightness_percentage)
+
+            percentage_int = int(brightness_percentage[:-1])
+            if percentage_int > self.dark_threshold:
                 color = self.color_bright
 
         except self.py3.CommandError as e:
@@ -95,7 +107,8 @@ class Py3status:
     def _brightness_delta_adjustment(self, value, increase=False):
         command_str = "{base_command} s {value}{sign}".format(
             base_command=self._brightnessctl_base_command(),
-            sign="+" if increase else "-", value=str(value))
+            sign="+" if increase else "-",
+            value=str(value))
 
         self.py3.command_run(command_str)
 
@@ -105,6 +118,12 @@ class Py3status:
 
         self.py3.command_run(command_str)
 
+    def _percentage_format(self, percentage):
+        if isinstance(percentage, str) and percentage[-1] == "%":
+            return percentage
+
+        return "{min}%".format(min=str(percentage))
+
     def on_click(self, event):
         button = event["button"]
         if button in [self.button_up, self.button_down]:
@@ -113,7 +132,7 @@ class Py3status:
                 increase=(button == self.button_up))
         elif button == self.button_min:
             self._brightness_absolute_adjustment(
-                "{min}%".format(min=str(self.min_brightness)))
+                self._percentage_format(self.min_brightness))
         elif button == self.button_max:
             self._brightness_absolute_adjustment("100%")
 
